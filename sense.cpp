@@ -35,7 +35,7 @@ long get_distance(){
 }
 
 void alert_servo(long dist){
-    if distance >= ALLOWED_DIST
+    if (distance >= ALLOWED_DIST)
         s.write(0);
     
     int tap_delay = map(dist, ALLOWED_DIST, ALERT_DIST, 50, 400);
@@ -52,7 +52,7 @@ void loop(){
 
     Serial.print(millis());
     Serial.print(".");
-    Serial.println(dist);
+    Serial.println(distance);
 
     alert_servo(distance);
 }

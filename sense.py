@@ -22,7 +22,7 @@ ax = grid(True)
 while True:
     try: 
         line = ser.readline().decode('utf-8').strip()
-        if "." is not in line:
+        if "." not in line:
             continue
         angle_str, dist_str = line.split(".")
         angle = int(angle_str)
@@ -40,4 +40,3 @@ while True:
     except Exception as e:
         print(f"Error: {e}")
         continue
-    
