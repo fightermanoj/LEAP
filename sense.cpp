@@ -42,5 +42,18 @@ void alert_servo(long dist){
     tap_delay = constrain(tap_delay, 50, 400);
 
     s.write(90);
+    delay(tap_delay);
+    s.write(0);
+    delay(tap_delay);
+}
+
+void loop(){
+    long distance = get_distance();
+
+    Serial.print(millis());
+    Serial.print(".");
+    Serial.println(dist);
+
+    alert_servo(distance);
 }
 
