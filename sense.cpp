@@ -36,10 +36,11 @@ long get_distance(){
 
 void alert_servo(long dist){
     if distance >= ALLOWED_DIST
-        servo.write(0);
+        s.write(0);
     
     int tap_delay = map(dist, ALLOWED_DIST, ALERT_DIST, 50, 400);
     tap_delay = constrain(tap_delay, 50, 400);
 
-    
+    s.write(90);
 }
+
