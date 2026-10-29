@@ -31,7 +31,7 @@ float sonarRead(int index) {
 void sonarReadAll(float* dists) {
   for (int i = 0; i < SENSOR_COUNT; i++) {
     dists[i] = sonarRead(i);
-    delay(5);
+    delay(10);
   }
 }
 
@@ -40,4 +40,3 @@ int calcHapticAngle(float dist) {
   if (dist <= 5.0f) return 140;
   return map((long)(dist * 10), 50, 600, 140, 180);
 }
-
