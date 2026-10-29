@@ -1,195 +1,119 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-    <meta charset="utf-8">
-    <title>Acoustic Telemetry Testbed</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 24px;
-            background: #ffffff;
-            color: #222222;
-        }
-
-        h3 {
-            margin: 0 0 12px 0;
-            font-size: 16px;
-            font-weight: 600;
-        }
-
-        .telemetry {
-            display: flex;
-            gap: 20px;
-            align-items: center;
-            margin-bottom: 12px;
-            font-size: 13px;
-            font-family: monospace;
-        }
-
-        progress {
-            width: 120px;
-            height: 14px;
-        }
-
-        canvas {
-            background: #ffffff;
-            border: 1px solid #d0d0d0;
-            display: block;
-        }
-
-        .caption {
-            margin-top: 6px;
-            font-size: 11px;
-            color: #777777;
-        }
-    </style>
+<meta charset="utf-8">
+<title>NETRA 5-Sensor Acoustic Plot</title>
+<style>
+body {
+  font-family: sans-serif;
+  margin: 24px;
+  background: #ffffff;
+  color: #000000;
+}
+canvas {
+  border: 1px solid #000000;
+  display: block;
+}
+.label {
+  margin-top: 10px;
+  font-size: 13px;
+  font-family: monospace;
+}
+</style>
 </head>
-
 <body>
 
-    <h3>Acoustic Sensor & Haptic Actuation Testbed</h3>
+<h3>NETRA 5-Sensor Perimeter Mapping</h3>
+<canvas id="c" width="600" height="500"></canvas>
+<div class="label" id="val">Waiting for 5-sensor stream...</div>
 
-    <div class="telemetry">
-        <span>Distance: <b id="val-dist">--</b> cm</span>
-        <span>Servo: <b id="val-servo">--</b>&deg;</span>
-        <span>Haptic Load: <progress id="val-bar" value="0" max="100"></progress> <span id="val-pct">0%</span></span>
-    </div>
+<script>
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d");
+const elVal = document.getElementById("val");
 
-    <canvas id="c" width="720" height="460"></canvas>
-    <div class="caption">3D Plot</div>
+const cx = cv.width / 2;
+const cy = cv.height / 2;
+const scale = 3.2;
 
-    <script>
-        const cv = document.getElementById("c");
-        const ctx = cv.getContext("2d");
-        const elDist = document.getElementById("val-dist");
-        const elServo = document.getElementById("val-servo");
-        const elBar = document.getElementById("val-bar");
-        const elPct = document.getElementById("val-pct");
+let dists = [60, 60, 60, 60, 60];
+let curServo = 180;
 
-        const cx = cv.width / 2;
-        const cy = cv.height / 2 + 50;
+const angles = [180, 0, 115, 65, 270];
+const names = ["L-Shldr", "R-Shldr", "Chest-L", "Chest-R", "Back"];
 
-        let rotX = 0.45;
-        let rotY = 0.35;
-        let isDrag = false;
-        let startX = 0, startY = 0;
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
 
-        let curDist = 60;
-        let curServo = 180;
+  ctx.strokeStyle = "#e8e8e8";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
 
-        cv.addEventListener("mousedown", (e) => {
-            isDrag = true;
-            startX = e.clientX;
-            startY = e.clientY;
-        });
+  for (let r = 20; r <= 60; r += 20) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * scale, 0, 2 * Math.PI);
+    ctx.stroke();
 
-        window.addEventListener("mouseup", () => {
-            isDrag = false;
-        });
+    ctx.fillStyle = "#888";
+    ctx.font = "10px sans-serif";
+    ctx.fillText(r + " cm", cx + r * scale + 4, cy - 4);
+  }
+  ctx.setLineDash([]);
 
-        window.addEventListener("mousemove", (e) => {
-            if (!isDrag) return;
-            rotY += (e.clientX - startX) * 0.007;
-            rotX += (e.clientY - startY) * 0.007;
-            startX = e.clientX;
-            startY = e.clientY;
-        });
+  ctx.fillStyle = "#1f77b4";
+  ctx.beginPath();
+  ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
+  ctx.fill();
+  ctx.font = "11px sans-serif";
+  ctx.fillText("Origin", cx - 15, cy + 18);
 
-        function project(x, y, z) {
-            const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
-            const x1 = x * cosY + z * sinY;
-            const z1 = -x * sinY + z * cosY;
+  for (let i = 0; i < 5; i++) {
+    const d = Math.min(60, dists[i]);
+    const rad = (angles[i] * Math.PI) / 180;
+    const px = cx + d * scale * Math.cos(rad);
+    const py = cy - d * scale * Math.sin(rad);
 
-            const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
-            const y2 = y * cosX - z1 * sinX;
-            const z2 = y * sinX + z1 * cosX;
+    ctx.strokeStyle = "#cccccc";
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(px, py);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
-            const f = 500 / (600 + z2);
-            return {
-                x: cx + x1 * f,
-                y: cy + y2 * f
-            };
-        }
+    ctx.fillStyle = d <= 15 ? "#d62728" : "#2ca02c";
+    ctx.beginPath();
+    ctx.arc(px, py, 6, 0, 2 * Math.PI);
+    ctx.fill();
 
-        function drawGrid() {
-            ctx.strokeStyle = "#ebebeb";
-            ctx.lineWidth = 1;
+    ctx.fillStyle = "#222222";
+    ctx.font = "11px monospace";
+    ctx.fillText(names[i] + ": " + d.toFixed(1) + "cm", px + 8, py + 4);
+  }
 
-            for (let z = 0; z <= 300; z += 50) {
-                const p1 = project(-150, 0, z);
-                const p2 = project(150, 0, z);
-                ctx.beginPath();
-                ctx.moveTo(p1.x, p1.y);
-                ctx.lineTo(p2.x, p2.y);
-                ctx.stroke();
-            }
+  requestAnimationFrame(draw);
+}
+draw();
 
-            for (let x = -150; x <= 150; x += 50) {
-                const p1 = project(x, 0, 0);
-                const p2 = project(x, 0, 300);
-                ctx.beginPath();
-                ctx.moveTo(p1.x, p1.y);
-                ctx.lineTo(p2.x, p2.y);
-                ctx.stroke();
-            }
+const ev = new EventSource("/s");
+ev.onmessage = (e) => {
+  const data = JSON.parse(e.data);
+  if (Array.isArray(data[0])) {
+    dists = data[0];
+    curServo = data[1];
+  } else {
+    dists[0] = data[0];
+    curServo = data[1];
+  }
 
-            ctx.strokeStyle = "#bbbbbb";
-            const zStart = project(0, 0, 0);
-            const zEnd = project(0, 0, 300);
-            ctx.beginPath();
-            ctx.moveTo(zStart.x, zStart.y);
-            ctx.lineTo(zEnd.x, zEnd.y);
-            ctx.stroke();
-
-            ctx.fillStyle = "#111111";
-            ctx.beginPath();
-            ctx.arc(zStart.x, zStart.y, 4, 0, 2 * Math.PI);
-            ctx.fill();
-            ctx.font = "11px monospace";
-            ctx.fillText("Sensor (0,0)", zStart.x + 8, zStart.y + 4);
-
-            const targetZ = curDist * 4.2;
-            const targetPt = project(0, 0, targetZ);
-
-            ctx.strokeStyle = "#999999";
-            ctx.setLineDash([3, 3]);
-            ctx.beginPath();
-            ctx.moveTo(zStart.x, zStart.y);
-            ctx.lineTo(targetPt.x, targetPt.y);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            ctx.fillStyle = curDist <= 15 ? "#d93838" : "#2563eb";
-            ctx.beginPath();
-            ctx.arc(targetPt.x, targetPt.y, 6, 0, 2 * Math.PI);
-            ctx.fill();
-
-            ctx.fillStyle = "#111111";
-            ctx.fillText(curDist.toFixed(1) + " cm", targetPt.x + 8, targetPt.y - 4);
-        }
-
-        function loop() {
-            ctx.clearRect(0, 0, cv.width, cv.height);
-            drawGrid();
-            requestAnimationFrame(loop);
-        }
-        loop();
-
-        const ev = new EventSource("/s");
-        ev.onmessage = (e) => {
-            const [dist, servo] = JSON.parse(e.data);
-            curDist = dist;
-            curServo = servo;
-
-            const pct = Math.max(0, Math.min(100, Math.round(((180 - servo) / 40) * 100)));
-
-            elDist.innerText = dist.toFixed(1);
-            elServo.innerText = servo;
-            elBar.value = pct;
-            elPct.innerText = pct + "%";
-        };
-    </script>
+  elVal.innerText =
+    "S1:" + dists[0].toFixed(1) + "cm | " +
+    "S2:" + dists[1].toFixed(1) + "cm | " +
+    "S3:" + dists[2].toFixed(1) + "cm | " +
+    "S4:" + dists[3].toFixed(1) + "cm | " +
+    "S5:" + dists[4].toFixed(1) + "cm | " +
+    "Servo: " + curServo + " deg";
+};
+</script>
 </body>
-
 </html>
