@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title> Project Netra </title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 20px;
+      background: #ffffff;
+      color: #000000;
+      user-select: none;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .header h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    button {
+      padding: 4px 12px;
+      font-family: monospace;
+      cursor: pointer;
+      background: #fff;
+      border: 1px solid #000;
+    }
+
+    button:hover {
+      background: #eee;
+    }
+
+    .views {
+      display: flex;
+      gap: 16px;
+    }
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .panel-title {
+      font-size: 12px;
+      font-weight: bold;
+      margin-bottom: 4px;
+    }
+
+    canvas {
+      border: 1px solid #000000;
+      background: #ffffff;
+      display: block;
+    }
+
+    .label {
+      margin-top: 10px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="header">
+    <h3>NETRA: Sub-surface Acoustic SLAM & Attitude Monitor</h3>
+    <div>
+      <button onclick="resetSlam()">Reset SLAM Map</button>
+    </div>
+  </div>
+
+  <div class="views">
+    <div class="panel">
+      <div class="panel-title">Figure 1: 2D Persistent SLAM Occupancy Grid (10m x 10m)</div>
+      <canvas id="c-slam" width="460" height="460"></canvas>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Figure 2: 3D IMU Attitude & Acoustic Rays (Drag to Rotate)</div>
+      <canvas id="c-imu" width="460" height="460" style="cursor:grab"></canvas>
+    </div>
+  </div>
+
+  <div class="label" id="val">Connecting to stream...</div>
+
+  <script>
+    const cvSlam = document.getElementById("c-slam");
+    const ctxSlam = cvSlam.getContext("2d");
+
+    const cvImu = document.getElementById("c-imu");
+    const ctxImu = cvImu.getContext("2d");
+
+    const elVal = document.getElementById("val");
+
+    let camRotX = 0.45;
+    let camRotY = 0.35;
+    let isDrag = false;
+    let startX = 0, startY = 0;
+
+    let dists = [60, 60, 60, 60, 60];
+    let servos = [180, 180, 180, 180, 180];
+    let pitch = 0.0;
+    let yaw = 0.0;
+    let slamData = { diver: [500, 500, 0], path: [], obstacles: [] };
+
+    const sensorAngles = [180, 0, 115, 65, 270];
+
+    const boxVerts = [
+      [-20, -12, -30], [20, -12, -30], [20, 12, -30], [-20, 12, -30],
+      [-20, -12, 30], [20, -12, 30], [20, 12, 30], [-20, 12, 30]
+    ];
+    const boxEdges = [
+      [0, 1], [1, 2], [2, 3], [3, 0],
+      [4, 5], [5, 6], [6, 7], [7, 4],
+      [0, 4], [1, 5], [2, 6], [3, 7]
+    ];
+
+    function resetSlam() {
+      fetch("/cmd?c=reset_slam");
+      slamData.obstacles = [];
+      slamData.path = [];
+    }
+
+    cvImu.addEventListener("mousedown", (e) => {
+      isDrag = true;
+      startX = e.clientX;
+      startY = e.clientY;
+    });
+    window.addEventListener("mouseup", () => isDrag = false);
+    window.addEventListener("mousemove", (e) => {
+      if (!isDrag) return;
+      camRotY += (e.clientX - startX) * 0.007;
+      camRotX += (e.clientY - startY) * 0.007;
+      startX = e.clientX;
+      startY = e.clientY;
+    });
+
+    function drawSlam() {
+      ctxSlam.clearRect(0, 0, cvSlam.width, cvSlam.height);
+
+      ctxSlam.strokeStyle = "#f0f0f0";
+      ctxSlam.lineWidth = 1;
+      const step = cvSlam.width / 10;
+      for (let i = 0; i <= cvSlam.width; i += step) {
+        ctxSlam.beginPath();
+        ctxSlam.moveTo(i, 0); ctxSlam.lineTo(i, cvSlam.height);
+        ctxSlam.stroke();
+        ctxSlam.beginPath();
+        ctxSlam.moveTo(0, i); ctxSlam.lineTo(cvSlam.width, i);
+        ctxSlam.stroke();
+      }
+
+      const sScale = cvSlam.width / 1000.0;
+
+      ctxSlam.fillStyle = "#d62728";
+      for (const [gx, gy] of slamData.obstacles) {
+        ctxSlam.fillRect(gx * 10 * sScale - 2, gy * 10 * sScale - 2, 4, 4);
+      }
+
+      if (slamData.path.length > 1) {
+        ctxSlam.strokeStyle = "#1f77b4";
+        ctxSlam.lineWidth = 1.2;
+        ctxSlam.beginPath();
+        for (let i = 0; i < slamData.path.length; i++) {
+          const px = slamData.path[i][0] * 10 * sScale;
+          const py = slamData.path[i][1] * 10 * sScale;
+          if (i === 0) ctxSlam.moveTo(px, py);
+          else ctxSlam.lineTo(px, py);
+        }
+        ctxSlam.stroke();
+      }
+
+      const dx = slamData.diver[0] * sScale;
+      const dy = slamData.diver[1] * sScale;
+      const dYaw = slamData.diver[2];
+      const rad = (dYaw * Math.PI) / 180;
+
+      ctxSlam.save();
+      ctxSlam.translate(dx, dy);
+      ctxSlam.rotate(rad);
+      ctxSlam.fillStyle = "#1f77b4";
+      ctxSlam.beginPath();
+      ctxSlam.moveTo(0, -9);
+      ctxSlam.lineTo(6, 7);
+      ctxSlam.lineTo(-6, 7);
+      ctxSlam.closePath();
+      ctxSlam.fill();
+      ctxSlam.restore();
+
+      for (let i = 0; i < 5; i++) {
+        const d = dists[i];
+        if (d > 2.0 && d < 60.0) {
+          const gAngle = ((dYaw + sensorAngles[i]) * Math.PI) / 180;
+          const targetX = dx + d * 10 * sScale * Math.cos(gAngle);
+          const targetY = dy + d * 10 * sScale * Math.sin(gAngle);
+
+          ctxSlam.strokeStyle = "rgba(44, 160, 44, 0.4)";
+          ctxSlam.setLineDash([2, 2]);
+          ctxSlam.beginPath();
+          ctxSlam.moveTo(dx, dy);
+          ctxSlam.lineTo(targetX, targetY);
+          ctxSlam.stroke();
+          ctxSlam.setLineDash([]);
+        }
+      }
+    }
+
+    function rotateIMU(x, y, z) {
+      const radP = (pitch * Math.PI) / 180;
+      const radY = (yaw * Math.PI) / 180;
+
+      const y1 = y * Math.cos(radP) - z * Math.sin(radP);
+      const z1 = y * Math.sin(radP) + z * Math.cos(radP);
+
+      const x2 = x * Math.cos(radY) + z1 * Math.sin(radY);
+      const z2 = -x * Math.sin(radY) + z1 * Math.cos(radY);
+
+      return [x2, y1, z2];
+    }
+
+    function project(x, y, z) {
+      const cx = cvImu.width / 2;
+      const cy = cvImu.height / 2 + 20;
+
+      const cosY = Math.cos(camRotY), sinY = Math.sin(camRotY);
+      const x1 = x * cosY + z * sinY;
+      const z1 = -x * sinY + z * cosY;
+
+      const cosX = Math.cos(camRotX), sinX = Math.sin(camRotX);
+      const y2 = y * cosX - z1 * sinX;
+      const z2 = y * sinX + z1 * cosX;
+
+      const f = 400 / (550 + z2);
+      return { px: cx + x1 * f, py: cy + y2 * f };
+    }
+
+    function drawImuView() {
+      ctxImu.clearRect(0, 0, cvImu.width, cvImu.height);
+
+      ctxImu.strokeStyle = "#f0f0f0";
+      ctxImu.lineWidth = 1;
+      ctxImu.setLineDash([2, 2]);
+      for (let z = -150; z <= 150; z += 50) {
+        const p1 = project(-150, 30, z);
+        const p2 = project(150, 30, z);
+        ctxImu.beginPath();
+        ctxImu.moveTo(p1.px, p1.py); ctxImu.lineTo(p2.px, p2.py);
+        ctxImu.stroke();
+      }
+      ctxImu.setLineDash([]);
+
+      const rotatedVerts = [];
+      for (let i = 0; i < 8; i++) {
+        const [rx, ry, rz] = rotateIMU(boxVerts[i][0], boxVerts[i][1], boxVerts[i][2]);
+        rotatedVerts.push(project(rx, ry, rz));
+      }
+
+      ctxImu.strokeStyle = "#1f77b4";
+      ctxImu.lineWidth = 1.8;
+      for (const [u, v] of boxEdges) {
+        ctxImu.beginPath();
+        ctxImu.moveTo(rotatedVerts[u].px, rotatedVerts[u].py);
+        ctxImu.lineTo(rotatedVerts[v].px, rotatedVerts[v].py);
+        ctxImu.stroke();
+      }
+
+      for (let i = 0; i < 5; i++) {
+        const d = Math.min(60, dists[i]);
+        const angRad = (sensorAngles[i] * Math.PI) / 180;
+        const [tx, ty, tz] = rotateIMU(d * 2.5 * Math.cos(angRad), 0, d * 2.5 * Math.sin(angRad));
+        const pTarget = project(tx, ty, tz);
+        const pOrigin = project(...rotateIMU(0, 0, 0));
+
+        ctxImu.strokeStyle = "#999999";
+        ctxImu.setLineDash([2, 2]);
+        ctxImu.beginPath();
+        ctxImu.moveTo(pOrigin.px, pOrigin.py);
+        ctxImu.lineTo(pTarget.px, pTarget.py);
+        ctxImu.stroke();
+        ctxImu.setLineDash([]);
+
+        ctxImu.fillStyle = d <= 15 ? "#d62728" : "#2ca02c";
+        ctxImu.beginPath();
+        ctxImu.arc(pTarget.px, pTarget.py, 4.5, 0, 2 * Math.PI);
+        ctxImu.fill();
+      }
+    }
+
+    function render() {
+      drawSlam();
+      drawImuView();
+      requestAnimationFrame(render);
+    }
+    render();
+
+    const ev = new EventSource("/s");
+    ev.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.pt) {
+        const pt = data.pt;
+        if (Array.isArray(pt[0])) dists = pt[0];
+        if (Array.isArray(pt[1])) servos = pt[1];
+        if (pt[2] && typeof pt[2] === "object") {
+          pitch = pt[2].pitch || 0.0;
+          yaw = pt[2].yaw || 0.0;
+        }
+      }
+      if (data.slam) {
+        slamData = data.slam;
+      }
+
+      elVal.innerText =
+        "Pitch: " + pitch.toFixed(1) + "° | Yaw: " + yaw.toFixed(1) + "° | " +
+        "S1:" + dists[0].toFixed(1) + "cm | " +
+        "S2:" + dists[1].toFixed(1) + "cm | " +
+        "S3:" + dists[2].toFixed(1) + "cm | " +
+        "S4:" + dists[3].toFixed(1) + "cm | " +
+        "S5:" + dists[4].toFixed(1) + "cm | " +
+        "Obstacles Mapped: " + (slamData.obstacles ? slamData.obstacles.length : 0);
+    };
+  </script>
+</body>
+
+</html>
