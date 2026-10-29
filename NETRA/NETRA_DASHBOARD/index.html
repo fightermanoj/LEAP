@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>NETRA 3D Acoustic & IMU Testbed</title>
+<style>
+body {
+  font-family: sans-serif;
+  margin: 24px;
+  background: #ffffff;
+  color: #000000;
+  user-select: none;
+}
+canvas {
+  border: 1px solid #000000;
+  display: block;
+  background: #ffffff;
+  cursor: grab;
+}
+.label {
+  margin-top: 10px;
+  font-size: 13px;
+  font-family: monospace;
+}
+</style>
+</head>
+<body>
+
+<h3>NETRA Acoustic Perimeter & 3D IMU Attitude</h3>
+<canvas id="c" width="700" height="500"></canvas>
+<div class="label" id="val">Waiting for telemetry stream...</div>
+
+<script>
+const cv = document.getElementById("c");
+const ctx = cv.getContext("2d");
+const elVal = document.getElementById("val");
+
+const cx = cv.width / 2;
+const cy = cv.height / 2 + 30;
+
+let camRotX = 0.45;
+let camRotY = 0.35;
+let isDrag = false;
+let startX = 0, startY = 0;
+
+let dists = [60, 60, 60, 60, 60];
+let servos = [180, 180, 180, 180, 180];
+let pitch = 0.0;
+let yaw = 0.0;
+
+const sensorAngles = [180, 0, 115, 65, 270];
+const sensorNames = ["L-Shldr", "R-Shldr", "Chest-L", "Chest-R", "Back"];
+
+const boxVerts = [
+  [-20, -12, -30], [20, -12, -30], [20, 12, -30], [-20, 12, -30],
+  [-20, -12, 30],  [20, -12, 30],  [20, 12, 30],  [-20, 12, 30]
+];
+
+const boxEdges = [
+  [0,1],[1,2],[2,3],[3,0],
+  [4,5],[5,6],[6,7],[7,4],
+  [0,4],[1,5],[2,6],[3,7]
+];
+
+cv.addEventListener("mousedown", (e) => {
+  isDrag = true;
+  startX = e.clientX;
+  startY = e.clientY;
+});
+
+window.addEventListener("mouseup", () => {
+  isDrag = false;
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!isDrag) return;
+  camRotY += (e.clientX - startX) * 0.007;
+  camRotX += (e.clientY - startY) * 0.007;
+  startX = e.clientX;
+  startY = e.clientY;
+});
+
+function rotateIMU(x, y, z) {
+  const radP = (pitch * Math.PI) / 180;
+  const radY = (yaw * Math.PI) / 180;
+
+  const y1 = y * Math.cos(radP) - z * Math.sin(radP);
+  const z1 = y * Math.sin(radP) + z * Math.cos(radP);
+
+  const x2 = x * Math.cos(radY) + z1 * Math.sin(radY);
+  const z2 = -x * Math.sin(radY) + z1 * Math.cos(radY);
+
+  return [x2, y1, z2];
+}
+
+function project(x, y, z) {
+  const cosY = Math.cos(camRotY), sinY = Math.sin(camRotY);
+  const x1 = x * cosY + z * sinY;
+  const z1 = -x * sinY + z * cosY;
+
+  const cosX = Math.cos(camRotX), sinX = Math.sin(camRotX);
+  const y2 = y * cosX - z1 * sinX;
+  const z2 = y * sinX + z1 * cosX;
+
+  const f = 450 / (550 + z2);
+  return {
+    px: cx + x1 * f,
+    py: cy + y2 * f
+  };
+}
+
+function drawGroundGrid() {
+  ctx.strokeStyle = "#ebebeb";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([2, 2]);
+
+  for (let z = -200; z <= 200; z += 50) {
+    const p1 = project(-200, 30, z);
+    const p2 = project(200, 30, z);
+    ctx.beginPath();
+    ctx.moveTo(p1.px, p1.py);
+    ctx.lineTo(p2.px, p2.py);
+    ctx.stroke();
+  }
+
+  for (let x = -200; x <= 200; x += 50) {
+    const p1 = project(x, 30, -200);
+    const p2 = project(x, 30, 200);
+    ctx.beginPath();
+    ctx.moveTo(p1.px, p1.py);
+    ctx.lineTo(p2.px, p2.py);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+
+function drawImuBox() {
+  const rotatedVerts = [];
+  for (let i = 0; i < 8; i++) {
+    const [rx, ry, rz] = rotateIMU(boxVerts[i][0], boxVerts[i][1], boxVerts[i][2]);
+    rotatedVerts.push(project(rx, ry, rz));
+  }
+
+  ctx.strokeStyle = "#1f77b4";
+  ctx.lineWidth = 1.8;
+  for (const [u, v] of boxEdges) {
+    ctx.beginPath();
+    ctx.moveTo(rotatedVerts[u].px, rotatedVerts[u].py);
+    ctx.lineTo(rotatedVerts[v].px, rotatedVerts[v].py);
+    ctx.stroke();
+  }
+
+  const frontCenter = project(...rotateIMU(0, 0, 32));
+  ctx.fillStyle = "#1f77b4";
+  ctx.font = "10px sans-serif";
+  ctx.fillText("FRONT", frontCenter.px - 14, frontCenter.py);
+}
+
+function drawAcousticSensors() {
+  const scale = 3.0;
+
+  for (let i = 0; i < 5; i++) {
+    const d = Math.min(60, dists[i]);
+    const angRad = (sensorAngles[i] * Math.PI) / 180;
+
+    const sensorRelX = d * scale * Math.cos(angRad);
+    const sensorRelZ = d * scale * Math.sin(angRad);
+
+    const [ox, oy, oz] = rotateIMU(0, 0, 0);
+    const [tx, ty, tz] = rotateIMU(sensorRelX, 0, sensorRelZ);
+
+    const pOrigin = project(ox, oy, oz);
+    const pTarget = project(tx, ty, tz);
+
+    ctx.strokeStyle = "#aaaaaa";
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(pOrigin.px, pOrigin.py);
+    ctx.lineTo(pTarget.px, pTarget.py);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = d <= 15 ? "#d62728" : "#2ca02c";
+    ctx.beginPath();
+    ctx.arc(pTarget.px, pTarget.py, 5, 0, 2 * Math.PI);
+    ctx.fill();
+
+    ctx.fillStyle = "#333333";
+    ctx.font = "10px monospace";
+    ctx.fillText(sensorNames[i] + ": " + d.toFixed(1) + "cm", pTarget.px + 7, pTarget.py + 3);
+  }
+}
+
+function render() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  drawGroundGrid();
+  drawImuBox();
+  drawAcousticSensors();
+  requestAnimationFrame(render);
+}
+render();
+
+const ev = new EventSource("/s");
+ev.onmessage = (e) => {
+  const data = JSON.parse(e.data);
+  if (Array.isArray(data[0])) dists = data[0];
+  if (Array.isArray(data[1])) servos = data[1];
+  if (data[2] && typeof data[2] === "object") {
+    pitch = data[2].pitch || 0.0;
+    yaw = data[2].yaw || 0.0;
+  }
+
+  elVal.innerText =
+    "Pitch: " + pitch.toFixed(1) + "° | Yaw: " + yaw.toFixed(1) + "° | " +
+    "S1:" + dists[0].toFixed(1) + "cm | " +
+    "S2:" + dists[1].toFixed(1) + "cm | " +
+    "S3:" + dists[2].toFixed(1) + "cm | " +
+    "S4:" + dists[3].toFixed(1) + "cm | " +
+    "S5:" + dists[4].toFixed(1) + "cm";
+};
+</script>
+</body>
+</html>
